@@ -2,9 +2,9 @@
 {
     public enum CommandEventType
     {
-        Input,
         Output,
         Error,
         Complete,
+        CurrentDirectory
     }
 }

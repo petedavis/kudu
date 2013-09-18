@@ -193,6 +193,7 @@
 			n.css('cursor','default');
 			return n;
 		};
+
 		////////////////////////////////////////////////////////////////////////
 		// Compute a promptLabel
 		function getPromptLabel() {
@@ -241,6 +242,8 @@
 			scrollToBottom();
 			return false;
 		});
+
+        extern.mes
 
 		////////////////////////////////////////////////////////////////////////
 		// Handle losing focus
@@ -506,9 +509,11 @@
 
 		////////////////////////////////////////////////////////////////////////
 		// Reset the prompt in invalid command
-		function commandResult(msg,className) {
+        function commandResult(msg,className,ignorePrompt) {
 			column = -1;
-			updatePromptDisplay();
+            if (!ignorePrompt) {
+                updatePromptDisplay();
+            }
 			if (typeof msg == 'string') {
 				message(msg,className);
 			} else if ($.isArray(msg)) {
@@ -519,7 +524,9 @@
 			} else { // Assume it's a DOM node or jQuery object.
 				inner.append(msg);
 			}
-			newPromptBox();
+            if (!ignorePrompt) {
+                newPromptBox();
+            }
 		};
 
 		////////////////////////////////////////////////////////////////////////
@@ -531,6 +538,9 @@
 			inner.append(mesg);
 			mesg.show();
 		};
+
+        extern.message = message;
+        extern.enableInput = enableInput;
 
 		////////////////////////////////////////////////////////////////////////
 		// Handle normal character insertion

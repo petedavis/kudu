@@ -1,0 +1,33 @@
+﻿<script src="http://code.jquery.com/jquery-1.7.min.js" type="text/javascript"></script>
+<script type="text/javascript">
+    $(function () {
+        var connection = $.connection('/commandstream');
+
+        connection.received(function (data) {
+            var msgs = $('#messages');
+            if (data.ExitCode) {
+                msgs.append("<li>Exit Code: " + data.ExitCode + "</li>");
+            } else if (data.Error) {
+                msgs.append('<li style="color: red">' + data.Error + '</li>');
+            } else {
+                msgs.append("<li>" + data.Output + "</li>");
+            }
+        });
+
+        connection.start().done(function () {
+            $("#broadcast").click(function () {
+                $("#messages").html('');
+                connection.send($('#msg').val());
+            });
+        });
+
+    });
+  </script>
+
+    
+  <input type="text" id="msg" />
+  <input type="button" id="broadcast" value="broadcast" />
+
+<div id="messages">
+
+</div>

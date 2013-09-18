@@ -1,17 +1,19 @@
-﻿using Kudu.Contracts.Settings;
-using Kudu.Core.Deployment;
-using Kudu.Core.Deployment.Generator;
-using Kudu.Core.Infrastructure;
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
+using Kudu.Contracts.Settings;
 using Kudu.Contracts.Tracing;
+using Kudu.Core.Deployment;
+using Kudu.Core.Deployment.Generator;
+using Kudu.Core.Infrastructure;
 
 namespace Kudu.Core.Commands
 {
     public class CommandExecutor : ICommandExecutor
     {
+        private const string CurrentDirIdentifier = "$$CD$$";
         private Process _executingProcess;
         private IEnvironment _environment;
         private string _rootDirectory;
@@ -28,9 +30,17 @@ namespace Kudu.Core.Commands
             _tracer = tracer;
         }
 
+        public bool Executing
+        {
+            get
+            {
+                return _executingProcess != null && !_executingProcess.HasExited;
+            }
+        }
+
         public event Action<CommandEvent> CommandEvent;
 
-        public CommandResult ExecuteCommand(string command, string workingDirectory)
+        public CommandResult ExecuteCommand(string command, string workingDirectory, bool calculateWorkingDir = false)
         {
             var idleManager = new IdleManager(_settings.GetCommandIdleTimeout(), _tracer);
             var result = new CommandResult();
@@ -53,6 +63,9 @@ namespace Kudu.Core.Commands
                     case CommandEventType.Complete:
                         exitCode = args.ExitCode;
                         break;
+                    case CommandEventType.CurrentDirectory:
+                        result.CurrentDirectory = args.Data;
+                        break;
                     default:
                         break;
                 }
@@ -63,7 +76,7 @@ namespace Kudu.Core.Commands
                 // Code reuse is good
                 CommandEvent += handler;
 
-                ExecuteCommandAsync(command, workingDirectory);
+                ExecuteCommandAsync(command, workingDirectory, calculateWorkingDir).Wait();
             }
             finally
             {
@@ -79,8 +92,10 @@ namespace Kudu.Core.Commands
             return result;
         }
 
-        public void ExecuteCommandAsync(string command, string relativeWorkingDirectory)
+        public async Task<CommandResult> ExecuteCommandAsync(string command, string relativeWorkingDirectory, bool calculateWorkingDir)
         {
+            var exitCodeTask = new TaskCompletionSource<int>();
+            var workingDirTask = new TaskCompletionSource<string>();
             string workingDirectory;
             if (String.IsNullOrEmpty(relativeWorkingDirectory))
             {
@@ -92,10 +107,17 @@ namespace Kudu.Core.Commands
             }
 
             Executable exe = _externalCommandFactory.BuildExternalCommandExecutable(workingDirectory, _environment.WebRootPath, NullLogger.Instance);
+            if (calculateWorkingDir)
+            {
+                command = command + " & echo " + CurrentDirIdentifier + "& CD";
+            }
+            else
+            {
+                workingDirTask.TrySetResult(null);
+            }
             _executingProcess = exe.CreateProcess(command);
 
             var commandEvent = CommandEvent;
-
             _executingProcess.Exited += (sender, e) =>
             {
                 if (commandEvent != null)
@@ -105,8 +127,10 @@ namespace Kudu.Core.Commands
                         ExitCode = _executingProcess.ExitCode
                     });
                 }
+                exitCodeTask.TrySetResult(_executingProcess.ExitCode);
             };
 
+            bool nextLineIsDirectory = false;
             _executingProcess.OutputDataReceived += (sender, e) =>
             {
                 if (e.Data == null)
@@ -114,9 +138,22 @@ namespace Kudu.Core.Commands
                     return;
                 }
 
+                if (nextLineIsDirectory)
+                {
+                    workingDirTask.TrySetResult(e.Data);
+                    return;
+                }
+
+                string result = e.Data;
+                if (calculateWorkingDir && result.StartsWith(CurrentDirIdentifier, StringComparison.Ordinal))
+                {
+                    nextLineIsDirectory = true;
+                    result = String.Empty;
+                }
+
                 if (commandEvent != null)
                 {
-                    commandEvent(new CommandEvent(CommandEventType.Output, e.Data));
+                    commandEvent(new CommandEvent(CommandEventType.Output, result));
                 }
             };
 
@@ -138,7 +175,18 @@ namespace Kudu.Core.Commands
             _executingProcess.BeginErrorReadLine();
             _executingProcess.BeginOutputReadLine();
 
-            _executingProcess.StandardInput.Close();
+            await Task.WhenAll(exitCodeTask.Task, workingDirTask.Task);
+
+            return new CommandResult
+            {
+                ExitCode = exitCodeTask.Task.Result,
+                CurrentDirectory = workingDirTask.Task.Result
+            };
+        }
+
+        public Task SendInput(string input)
+        {
+            return _executingProcess.StandardInput.WriteLineAsync(input);
         }
 
         public void CancelCommand()
