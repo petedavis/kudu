@@ -17,9 +17,9 @@ $(function() {
             return true;
         },
         commandHandle: function (line, reportFn) {
-            
             line = line.trim();
             lastUserInput = line + "\n";
+            lastLine.Output ? lastLine.Output += lastUserInput : lastLine.Error += lastUserInput;
             curReportFun = reportFn;
             if (!line) {
                 reportFn({ msg: "", className: "jquery-console-messae-value" });
@@ -63,10 +63,12 @@ $(function() {
     });
 
     connection.received(function (data) {
+        var prompt = getJSONValue(data);
+        if (prompt == lastUserInput)
+            return;
         //if the data has the same class as the last ".jquery-console-message"
         //then just append it to the last one, if not, create a new div.
         lastLine = getJSONValue(lastLine);
-        var prompt = getJSONValue(data);
         var lastConsoleMessage = $(".jquery-console-message").last();
         lastConsoleMessage.text(lastConsoleMessage.text() + lastLine);
         $(".jquery-console-inner").append($(".jquery-console-prompt-box"));

@@ -34,7 +34,9 @@ namespace Kudu.Services
         {
             try
             {
-                var process = GetProcessForConnection(connectionId);
+                var process = GetProcessForConnection(connectionId, false);
+                if (process == null) return base.OnDisconnected(request, connectionId);
+
                 process.StandardInput.WriteLine("exit");
                 process.StandardInput.Flush();
                 Thread.Sleep(2000);
@@ -60,12 +62,12 @@ namespace Kudu.Services
             });
         }
 
-        Process GetProcessForConnection(string connectionId)
+        Process GetProcessForConnection(string connectionId, bool createIfNotExist = true)
         {
             lock (Processes)
             {
-                Process ret;
-                if (!Processes.TryGetValue(connectionId, out ret))
+                Process ret = null;
+                if (!Processes.TryGetValue(connectionId, out ret) && createIfNotExist)
                 {
                     ret = StartProcess(connectionId);
                     Processes.Add(connectionId, ret);
@@ -83,7 +85,7 @@ namespace Kudu.Services
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
-                WorkingDirectory = _environment.SiteRootPath
+                WorkingDirectory = _environment.RootPath
             };
 
             var process = Process.Start(startInfo);
